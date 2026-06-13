@@ -1,6 +1,6 @@
 from typing import Self
 
-from app.services.swarm_agent.config import Settings
+from app.config import Settings
 from app.services.swarm_agent.exceptions import RegistryValidationError
 from ..types import (
     ProviderConfig,
@@ -205,7 +205,7 @@ class LLMRegistry:
 
 
 def get_llm_registry(
-    settings: Settings
+    secrets: Settings,
 ) -> LLMRegistry:
     """Собирает готовый к бою 
     реестр провайдеров и моделей 
@@ -218,7 +218,7 @@ def get_llm_registry(
     registry.reg_provider(
         ProviderConfig(
             name=ProviderName.OPENROUTER,
-            api_key="",
+            api_key=secrets.OPENROUTER_API_KEY,
             base_url="https://openrouter.ai/api/v1",
             headers={"HTTP-Referer": "https://agent",
                      "X-Title": "Swarm Agent"},

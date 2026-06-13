@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from os import getenv
+from typing import Any
+from typing import Final
 from hashlib import blake2b
-from typing import Any, Final
+from collections.abc import Mapping
+from collections.abc import Sequence
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+from pydantic import BaseModel
+from pydantic import ConfigDict
 
-from app.services.swarm_agent.config import Settings, get_settings
-from app.services.swarm_agent.exceptions import MissingApiKeyError, ToolExecutionError
+from app.config import Settings
+from app.config import get_settings
 from app.services.swarm_agent.text import truncate_text
 from app.services.swarm_agent.types import LinkRecord
+from app.services.swarm_agent.exceptions import MissingApiKeyError
+from app.services.swarm_agent.exceptions import ToolExecutionError
 
 
 _SOURCE_NAME: Final[str] = "openrouter:web_search"
@@ -148,7 +155,9 @@ def _parse_sources(annotations: Any) -> tuple[WebSearchSource, ...]:
     return tuple(sources)
 
 
-def parse_openrouter_response(query: str, payload: Mapping[str, Any]) -> WebSearchResult:
+def parse_openrouter_response(
+    query: str, payload: Mapping[str, Any]
+) -> WebSearchResult:
     """Извлечь answer, citations и usage из OpenRouter chat completion."""
 
     first_choice = next(iter(_as_sequence(payload.get("choices"))), {})
@@ -168,7 +177,6 @@ def parse_openrouter_response(query: str, payload: Mapping[str, Any]) -> WebSear
 
 def build_web_search_payload(
     *,
-    settings: Settings,
     query: str,
     allowed_domains: Sequence[str] | None,
     excluded_domains: Sequence[str] | None,
@@ -178,7 +186,7 @@ def build_web_search_payload(
     """Собрать OpenRouter payload с server tool openrouter:web_search."""
 
     parameters: dict[str, Any] = {
-        "engine": settings.web_search_engine,
+        "engine": "auto",
         "max_results": max_results,
         "max_total_results": max_results,
         "search_context_size": search_context_size,
@@ -190,7 +198,7 @@ def build_web_search_payload(
         parameters["excluded_domains"] = list(excluded_domains)
 
     return {
-        "model": settings.web_search_model_id,
+        "model": "google/gemini-2.5-flash-lite",
         "temperature": 0.1,
         "messages": [
             {
@@ -214,15 +222,15 @@ def build_web_search_payload(
 class OpenRouterWebSearchClient:
     """Минимальный OpenRouter client для web-search tool calls."""
 
-    __slots__ = ("_client", "_settings")
+    __slots__ = ("_client", "_secrets")
 
     def __init__(
         self,
         *,
-        settings: Settings | None = None,
+        secrets: Settings | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._settings = settings or get_settings()
+        self._secrets = secrets or get_settings()
         self._client = http_client
 
     async def search(
@@ -235,7 +243,6 @@ class OpenRouterWebSearchClient:
         search_context_size: str,
     ) -> WebSearchResult:
         payload = build_web_search_payload(
-            settings=self._settings,
             query=query,
             allowed_domains=allowed_domains,
             excluded_domains=excluded_domains,
@@ -280,8 +287,8 @@ class OpenRouterWebSearchClient:
             "timeout": self._timeout(),
             "http2": True,
         }
-        if self._settings.openrouter_use_proxy and self._settings.proxy_url:
-            kwargs["proxy"] = self._settings.proxy_url
+        if proxy_url := getenv("HTTPS_PROXY") or getenv("HTTP_PROXY"):
+            kwargs["proxy"] = proxy_url
 
         async with httpx.AsyncClient(**kwargs) as client:
             return await self._post_with(client, payload)
@@ -312,25 +319,25 @@ class OpenRouterWebSearchClient:
         return {str(key): value for key, value in parsed.items()}
 
     def _chat_url(self) -> str:
-        return f"{self._settings.openrouter_base_url.rstrip('/')}/chat/completions"
+        return "https://openrouter.ai/api/v1/chat/completions"
 
     def _headers(self) -> dict[str, str]:
-        api_key = self._settings.OPENROUTER_API_KEY
+        api_key = self._secrets.OPENROUTER_API_KEY
         if api_key is None:
             raise MissingApiKeyError("OPENROUTER_API_KEY is missing.")
 
         return {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": self._settings.openrouter_http_referer,
-            "X-Title": self._settings.openrouter_app_title,
+            "HTTP-Referer": "https://agent",
+            "X-Title": "Swarm Agent",
         }
 
     def _timeout(self) -> httpx.Timeout:
         return httpx.Timeout(
-            timeout=self._settings.openrouter_timeout_s,
-            connect=self._settings.openrouter_connect_timeout_s,
-            pool=self._settings.openrouter_pool_timeout_s,
-            write=self._settings.openrouter_timeout_s,
-            read=self._settings.openrouter_timeout_s,
+            timeout=120.0,
+            connect=15.0,
+            pool=15.0,
+            write=120.0,
+            read=120.0,
         )

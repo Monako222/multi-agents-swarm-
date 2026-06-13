@@ -14,8 +14,6 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from app.services.swarm_agent.config import Settings
-
 # Множество заморожено для O(1) поиска на скорости C-движка
 _TRANSIENT_STATUS_CODES: Final[frozenset[int]] = frozenset(
     {408, 409, 425, 429, 500, 502, 503, 504}
@@ -75,12 +73,11 @@ async def ainvoke_with_retries(
     messages: list[Any],
     config: RunnableConfig,
     *,
-    settings: Settings,
     node_name: str,
 ) -> tuple[Any, int]:
     """Выполняет вызов с bounded exponential backoff и джиттером (jitter)."""
     
-    max_retries = settings.node_max_retries
+    max_retries = 2
     retries = 0
     
     for attempt in range(max_retries + 1):
@@ -96,8 +93,8 @@ async def ainvoke_with_retries(
             retries += 1
             
             # Расчет экспоненциальной задержки
-            base_delay = settings.retry_initial_delay_s * (2 ** attempt)
-            delay = min(settings.retry_max_delay_s, base_delay)
+            base_delay = 0.5 * (2 ** attempt)
+            delay = min(8.0, base_delay)
             
             # Добавление джиттера для предотвращения Thundering Herd Problem
             delay += random.uniform(0.0, 0.25)

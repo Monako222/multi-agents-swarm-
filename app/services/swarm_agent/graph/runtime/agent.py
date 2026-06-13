@@ -17,7 +17,6 @@ from app.services.swarm_agent.agents import (
     build_agent_prompt,
 )
 from app.services.swarm_agent.agents.tools import get_agent_tools
-from app.services.swarm_agent.config import Settings, get_settings
 from app.services.swarm_agent.exceptions import MissingApiKeyError
 from app.services.swarm_agent.graph.budget import (
     compact_messages,
@@ -96,7 +95,6 @@ class AgentNode:
         "_lock",
         "_model_alias",
         "_registry",
-        "_settings",
         "_sys_msgs",
         "_tools",
         "name",
@@ -107,15 +105,13 @@ class AgentNode:
         spec: AgentSpec,
         *,
         registry: AgentRegistry,
-        settings: Settings | None = None,
         hub: LLMHub | LazyLLMHub | None = None,
     ) -> None:
         
         self.name = spec.name
         self._registry = registry
-        self._settings = settings or get_settings()
-        self._hub = hub or LazyLLMHub(settings=self._settings)
-        self._model_alias = spec.model_alias or self._settings.default_model_alias
+        self._hub = hub or LazyLLMHub()
+        self._model_alias = spec.model_alias or "fast"
         
         self._tools = get_agent_tools(
             spec.name, 
@@ -157,12 +153,8 @@ class AgentNode:
                 return self._llm
                 
             base = self._hub_instance().get(self._model_alias)
-            bind_kwargs: dict[str, Any] = {"tool_choice": "auto"}
+            bind_kwargs: dict[str, Any] = {"tool_choice": "auto", "parallel_tool_calls": True}
             
-            # Элегантная распаковка опционального флага
-            if (ptc := self._settings.allow_parallel_tool_calls) is not None:
-                bind_kwargs["parallel_tool_calls"] = ptc
-                
             try:
                 self._llm = base.bind_tools(self._tools, **bind_kwargs)
             except TypeError:  # fallback для провайдеров без поддержки ptc
@@ -188,9 +180,9 @@ class AgentNode:
 
         compaction = compact_messages(
             raw_history,
-            keep_last=self._settings.recent_messages_limit,
+            keep_last=12,
             previous_summary=prev_mem,
-            max_summary_chars=self._settings.memory_summary_char_limit,
+            max_summary_chars=8_000,
         )
         
         remove_msgs = _remove_messages(compaction.remove_ids)
@@ -198,10 +190,10 @@ class AgentNode:
 
         runtime_context = format_runtime_context(
             state,
-            part_char_limit=self._settings.state_part_char_limit,
-            data_char_limit=self._settings.data_part_char_limit,
-            file_char_limit=self._settings.file_part_char_limit,
-            total_char_limit=self._settings.runtime_context_char_limit,
+            part_char_limit=4_000,
+            data_char_limit=8_000,
+            file_char_limit=6_000,
+            total_char_limit=24_000,
         )
         
         # Декларативно собираем финальный массив сообщений
@@ -230,7 +222,7 @@ class AgentNode:
         llm_msgs.extend(
             _bounded_history(
                 compaction.kept, 
-                char_limit=self._settings.active_message_char_limit
+                char_limit=40_000,
             )
         )
 
@@ -244,7 +236,6 @@ class AgentNode:
                 self._bound_llm(),
                 llm_msgs,
                 config,
-                settings=self._settings,
                 node_name=self.name,
             )
             
@@ -252,7 +243,7 @@ class AgentNode:
             logger.bind(node=self.name).error("API key missing: {}", exc)
             return _fatal_node_update(
                 self.name,
-                self._settings.user_retry_later_message,
+                "Сейчас не получилось обработать запрос. Попробуйте, пожалуйста, чуть позже.",
                 exc,
                 loops=loops,
                 total_steps=total_steps,
@@ -262,7 +253,7 @@ class AgentNode:
             logger.bind(node=self.name).exception("LLM node failed")
             return _fatal_node_update(
                 self.name,
-                self._settings.user_retry_later_message,
+                "Сейчас не получилось обработать запрос. Попробуйте, пожалуйста, чуть позже.",
                 exc,
                 loops=loops,
                 total_steps=total_steps,

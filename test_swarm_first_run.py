@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 
-from app.services.swarm_agent.config import get_settings
+from app.config import get_settings
 from app.services.swarm_agent.graph.builder import build_swarm_graph
 from app.services.swarm_agent.graph.state import SwarmState, get_answer, to_snapshot
 from app.services.swarm_agent.observability import get_tracing_manager
@@ -34,8 +34,8 @@ def query_from_argv() -> str:
 
 
 def require_api_key() -> None:
-    settings = get_settings()
-    if settings.OPENROUTER_API_KEY is None:
+    secrets = get_settings()
+    if secrets.OPENROUTER_API_KEY is None:
         raise SystemExit(
             "OPENROUTER_API_KEY is not set. Set OPENROUTER_API_KEY "
             "or SWARM_OPENROUTER_API_KEY and run this script again."
@@ -43,8 +43,7 @@ def require_api_key() -> None:
 
 
 async def run_graph(query: str) -> str:
-    settings = get_settings()
-    graph = build_swarm_graph(settings=settings)
+    graph = build_swarm_graph()
     thread_id = f"first-run-{uuid4().hex[:12]}"
     tracing = get_tracing_manager()
 
@@ -53,7 +52,7 @@ async def run_graph(query: str) -> str:
         "in_files": [],
     }
     config = tracing.runnable_config(
-        base={"recursion_limit": settings.max_total_steps + 16},
+        base={"recursion_limit": 64 + 16},
         thread_id=thread_id,
         user_id="local-first-run",
         session_id=thread_id,

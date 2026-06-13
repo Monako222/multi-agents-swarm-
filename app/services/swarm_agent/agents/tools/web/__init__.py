@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Any
 
 import orjson
 from langchain_core.messages import ToolMessage
@@ -10,7 +10,6 @@ from langchain_core.tools import BaseTool
 from langgraph.types import Command
 
 from app.services.swarm_agent.agents.tools.base import make_async_tool
-from app.services.swarm_agent.config import Settings, get_settings
 from app.services.swarm_agent.text import truncate_text
 from app.services.swarm_agent.types import ToolCategory
 
@@ -37,14 +36,10 @@ def _tool_message(content: str, *, call_id: str) -> ToolMessage:
         return ToolMessage(**kwargs)
 
 
-def _limit_domains(
-    domains: list[str] | None,
-    *,
-    settings: Settings,
-) -> list[str] | None:
+def _limit_domains(domains: list[str] | None) -> list[str] | None:
     if not domains:
         return None
-    return domains[: settings.web_search_max_domains]
+    return domains[:10]
 
 
 def _tool_payload(results: list[WebSearchResult]) -> dict[str, Any]:
@@ -69,8 +64,7 @@ def build_web_tools(
 ) -> list[BaseTool]:
     """Собрать web tools для конкретного agent node."""
 
-    settings = get_settings()
-    web_client = client or OpenRouterWebSearchClient(settings=settings)
+    web_client = client or OpenRouterWebSearchClient()
 
     async def web_search_batch(
         queries: list[str],
@@ -85,14 +79,14 @@ def build_web_tools(
         if not tool_call_id:
             tool_call_id = "web_search_batch_manual"
 
-        bounded_queries = queries[: settings.web_search_max_queries]
-        bounded_results = min(max_results, settings.web_search_max_results)
-        context_size = search_context_size or settings.web_search_context_size
+        bounded_queries = queries[:5]
+        bounded_results = min(max_results, 5)
+        context_size = search_context_size or "medium"
 
         results = await web_client.search_batch(
             queries=bounded_queries,
-            allowed_domains=_limit_domains(allowed_domains, settings=settings),
-            excluded_domains=_limit_domains(excluded_domains, settings=settings),
+            allowed_domains=_limit_domains(allowed_domains),
+            excluded_domains=_limit_domains(excluded_domains),
             max_results=bounded_results,
             search_context_size=context_size,
         )

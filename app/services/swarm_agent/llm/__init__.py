@@ -1,5 +1,6 @@
 import httpx
 
+from os import getenv
 from typing import Any
 from threading import RLock
 
@@ -7,7 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
 
 
-from app.services.swarm_agent.config import Settings, get_settings
+from app.config import Settings, get_settings
 from app.services.swarm_agent.exceptions import MissingApiKeyError
 
 
@@ -34,12 +35,13 @@ class LLMHub:
 
     def __init__(
         self,
-        settings: Settings
+        secrets: Settings,
     ) -> None:
 
         self._lock = RLock()
-        self.registry = get_llm_registry(settings)
-        self.pool = AsyncHTTPClientPool(settings.proxy_url)
+        self.registry = get_llm_registry(secrets)
+        proxy_url = getenv("HTTPS_PROXY") or getenv("HTTP_PROXY")
+        self.pool = AsyncHTTPClientPool(proxy_url)
         self._cache: dict[str, BaseChatModel] = {}
         
 
@@ -135,10 +137,10 @@ class LLMHub:
 class LazyLLMHub:
     """Ленивая обертка, чтобы сборка графа не требовала API key до первого LLM-вызова."""
 
-    __slots__ = ("_hub", "_lock", "_settings")
+    __slots__ = ("_hub", "_lock", "_secrets")
 
-    def __init__(self, settings: Settings | None = None) -> None:
-        self._settings = settings or get_settings()
+    def __init__(self, secrets: Settings | None = None) -> None:
+        self._secrets = secrets or get_settings()
         self._lock = RLock()
         self._hub: LLMHub | None = None
 
@@ -147,7 +149,7 @@ class LazyLLMHub:
             return self._hub
         with self._lock:
             if self._hub is None:
-                self._hub = LLMHub(self._settings)
+                self._hub = LLMHub(self._secrets)
             return self._hub
 
     async def aclose(self) -> None:

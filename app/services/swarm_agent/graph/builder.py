@@ -19,7 +19,6 @@ from app.services.swarm_agent.agents import (
     agent_registry,
 )
 from app.services.swarm_agent.agents.tools import get_agent_tools
-from app.services.swarm_agent.config import Settings, get_settings
 from app.services.swarm_agent.graph.bootstrap import init_swarm
 from app.services.swarm_agent.graph.runtime import (
     AgentNode,
@@ -36,14 +35,12 @@ from app.services.swarm_agent.llm import LLMHub, LazyLLMHub
 def build_swarm_graph(
     *,
     checkpointer: Any = None,
-    settings: Settings | None = None,
     registry: AgentRegistry = agent_registry,
     hub: LLMHub | LazyLLMHub | None = None,
 ) -> Any:
     """Компилирует StateGraph роя со всеми агентами и fallback-узлами."""
     
-    cfg = settings or get_settings()
-    llm_hub = hub or LazyLLMHub(settings=cfg)
+    llm_hub = hub or LazyLLMHub()
     builder = StateGraph(SwarmState)
 
     # 1. Узел инициализации: очищает временную память перед каждым run
@@ -71,7 +68,6 @@ def build_swarm_graph(
             AgentNode(
                 spec, 
                 registry=registry, 
-                settings=cfg, 
                 hub=llm_hub
             ),
         )
@@ -83,7 +79,6 @@ def build_swarm_graph(
                 caller_name=name,
                 tools=tools,
                 valid_gotos=valid_gotos,
-                settings=cfg,
                 local_loop_limit=spec.max_local_loops,
             ),
         )
@@ -93,7 +88,6 @@ def build_swarm_graph(
             name,
             make_agent_router(
                 tools_node=tools_node,
-                settings=cfg,
                 local_loop_limit=spec.max_local_loops,
             ),
             {
@@ -117,5 +111,5 @@ def build_swarm_graph(
     # Финальная компиляция в исполняемый граф
     return builder.compile(
         checkpointer=checkpointer, 
-        debug=cfg.debug
+        debug=False,
     )

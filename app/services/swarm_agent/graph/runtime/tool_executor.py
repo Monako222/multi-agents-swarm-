@@ -25,7 +25,6 @@ from app.services.swarm_agent.agents.tools.base import (
     is_routing_tool,
     requires_tool_call_id,
 )
-from app.services.swarm_agent.config import Settings, get_settings
 from app.services.swarm_agent.exceptions import RegistryValidationError
 from app.services.swarm_agent.graph.runtime.tool_protocol import (
     FINISH_TOOL,
@@ -50,7 +49,6 @@ class ToolExecutorNode:
     __slots__ = (
         "_caller_name",
         "_local_loop_limit",
-        "_settings",
         "_targets",
         "_tools",
     )
@@ -61,12 +59,10 @@ class ToolExecutorNode:
         tools: tuple[BaseTool, ...],
         *,
         valid_gotos: tuple[str, ...],
-        settings: Settings | None = None,
         local_loop_limit: int | None = None,
     ) -> None:
         
         self._caller_name = caller_name
-        self._settings = settings or get_settings()
         self._local_loop_limit = local_loop_limit
         self._tools = self._index_tools(caller_name, tools)
         self._targets = frozenset({caller_name, FINAL_NODE, *valid_gotos})
@@ -146,16 +142,16 @@ class ToolExecutorNode:
     def _limit_reached(self, state: SwarmState) -> bool:
         """Сверхбыстрая проверка бизнес-лимитов."""
         
-        if int(state.get("total_steps") or 0) >= self._settings.max_total_steps:
+        if int(state.get("total_steps") or 0) >= 64:
             return True
             
-        max_loops = self._local_loop_limit or self._settings.max_agent_loops
+        max_loops = self._local_loop_limit or 8
         return int(state.get("loops") or 0) >= max_loops
 
     def _cap_calls(self, calls: list[ToolCall]) -> list[ToolCall]:
         """Обрезает излишний fan-out (DDoS провайдера), сохраняя routing tool."""
         
-        limit = self._settings.max_tool_calls_per_turn
+        limit = 8
         if len(calls) <= limit:
             return calls
 
@@ -259,7 +255,7 @@ class ToolExecutorNode:
         selected = self._selected_routing_call(calls)
         barrier = selected.index if selected else None
         
-        exec_ids = {c.index for c in calls[:self._settings.max_tool_calls_per_turn]}
+        exec_ids = {c.index for c in calls[:8]}
         if selected:
             exec_ids.add(selected.index)
 
@@ -333,7 +329,7 @@ class ToolExecutorNode:
             return []
             
         out: list[ToolOutcome] = []
-        chunk_size = self._settings.max_parallel_tool_calls
+        chunk_size = 4
         
         for i in range(0, len(calls), chunk_size):
             chunk = calls[i : i + chunk_size]
