@@ -45,7 +45,6 @@ def _limit_domains(domains: list[str] | None) -> list[str] | None:
 def _tool_payload(results: list[WebSearchResult]) -> dict[str, Any]:
     return {
         "results": [result.to_tool_json() for result in results],
-        "search_requests": sum(result.search_requests for result in results),
     }
 
 
@@ -112,7 +111,6 @@ def build_web_tools(
                 "metrics": {
                     "tool_calls": 1,
                     "llm_calls": len(results),
-                    "web_search_requests": payload["search_requests"],
                 },
             },
             goto=caller,

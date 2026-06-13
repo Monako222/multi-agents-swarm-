@@ -70,14 +70,12 @@ class WebSearchResult(BaseModel):
     query: str
     answer: str = ""
     sources: tuple[WebSearchSource, ...] = Field(default_factory=tuple)
-    search_requests: int = 0
 
     def to_tool_json(self) -> dict[str, Any]:
         return {
             "query": self.query,
             "answer": self.answer,
             "sources": [src.to_json() for src in self.sources],
-            "search_requests": self.search_requests,
         }
 
     def to_state_json(self) -> dict[str, Any]:
@@ -85,7 +83,6 @@ class WebSearchResult(BaseModel):
             "query": self.query,
             "answer": self.answer,
             "sources": [src.to_json() for src in self.sources],
-            "search_requests": self.search_requests,
         }
 
 
@@ -116,13 +113,6 @@ def _message_text(content: Any) -> str:
             parts.append(text)
 
     return "\n".join(p for p in parts if p).strip()
-
-
-def _int_value(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _parse_sources(annotations: Any) -> tuple[WebSearchSource, ...]:
@@ -158,20 +148,16 @@ def _parse_sources(annotations: Any) -> tuple[WebSearchSource, ...]:
 def parse_openrouter_response(
     query: str, payload: Mapping[str, Any]
 ) -> WebSearchResult:
-    """Извлечь answer, citations и usage из OpenRouter chat completion."""
+    """Извлечь answer и citations из OpenRouter chat completion."""
 
     first_choice = next(iter(_as_sequence(payload.get("choices"))), {})
     message = _as_mapping(_as_mapping(first_choice).get("message"))
-
-    usage = _as_mapping(payload.get("usage"))
-    server_tool_use = _as_mapping(usage.get("server_tool_use"))
 
     return WebSearchResult(
         id=_stable_id("web_query", query),
         query=query,
         answer=_message_text(message.get("content")),
         sources=_parse_sources(message.get("annotations")),
-        search_requests=_int_value(server_tool_use.get("web_search_requests")),
     )
 
 

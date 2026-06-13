@@ -21,7 +21,6 @@ from app.services.swarm_agent.exceptions import MissingApiKeyError
 from app.services.swarm_agent.graph.budget import (
     compact_messages,
     format_runtime_context,
-    render_message_for_memory,
 )
 from app.services.swarm_agent.graph.runtime.retry import ainvoke_with_retries
 from app.services.swarm_agent.graph.state import ErrorRecord, SwarmState
@@ -225,11 +224,6 @@ class AgentNode:
             )
         )
 
-        prompt_chars = sum(
-            len(render_message_for_memory(m, max_chars=8_000)) 
-            for m in llm_msgs
-        )
-
         try:
             response, retries = await ainvoke_with_retries(
                 self._bound_llm(),
@@ -267,10 +261,6 @@ class AgentNode:
             "metrics": {
                 "llm_calls": 1,
                 "retries": retries,
-                "prompt_chars": prompt_chars,
-                "completion_chars": len(
-                    render_message_for_memory(response, max_chars=40_000)
-                ),
                 "compacted_messages": compaction.evicted_count,
             },
         }
