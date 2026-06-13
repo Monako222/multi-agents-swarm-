@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Swarm Agent Service v0.6.0 — финальный аудит и архитектура</title>
+  <style>
+    :root {
+      --bg:#08111f; --panel:#101b2f; --panel2:#14233d; --text:#edf5ff;
+      --muted:#a9b7cb; --line:#263b62; --accent:#7dd3fc; --accent2:#c084fc;
+      --good:#86efac; --warn:#fde68a; --bad:#fca5a5; --code:#050a13;
+      --radius:18px; --shadow:0 20px 60px rgba(0,0,0,.36);
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--text); line-height:1.6; font-family:Inter, ui-sans-serif,
+      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:
+      radial-gradient(circle at 0 0, rgba(125,211,252,.18), transparent 34rem),
+      radial-gradient(circle at 85% 6%, rgba(192,132,252,.18), transparent 30rem),
+      linear-gradient(180deg,#08111f,#060914 70%); }
+    .layout { display:grid; grid-template-columns:320px minmax(0,1fr); min-height:100vh; }
+    aside { position:sticky; top:0; height:100vh; overflow:auto; padding:22px; background:rgba(5,10,20,.82);
+      border-right:1px solid var(--line); backdrop-filter:blur(18px); }
+    main { padding:34px min(5vw,76px) 90px; }
+    .brand { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
+    .logo { width:42px; height:42px; border-radius:14px; background:linear-gradient(135deg,var(--accent),var(--accent2));
+      box-shadow:0 0 28px rgba(125,211,252,.32); }
+    .brand h1 { margin:0; font-size:16px; line-height:1.18; }
+    .brand small { color:var(--muted); }
+    .search { width:100%; padding:11px 12px; border-radius:12px; border:1px solid var(--line); background:#091426; color:var(--text); }
+    nav { margin-top:18px; } nav a { display:block; padding:8px 10px; border-radius:10px; color:var(--muted); font-size:14px; }
+    nav a:hover { color:var(--text); background:#13213b; text-decoration:none; }
+    section { margin:0 0 30px; padding:26px; border:1px solid var(--line); border-radius:var(--radius); background:linear-gradient(180deg,rgba(16,27,47,.96),rgba(13,22,39,.94)); box-shadow:var(--shadow); }
+    .hero { padding:34px; }
+    h1, h2, h3 { line-height:1.18; } h1 { font-size:clamp(32px,5vw,58px); margin:0 0 14px; }
+    h2 { font-size:28px; margin:0 0 18px; } h3 { font-size:20px; margin:24px 0 10px; }
+    p { color:#d9e5f7; } .muted { color:var(--muted); }
+    .grid { display:grid; gap:14px; } .grid.cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .grid.cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)); } .grid.cols-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .card { padding:18px; border:1px solid var(--line); border-radius:16px; background:rgba(20,35,61,.82); }
+    .metric { font-size:28px; font-weight:800; color:var(--accent); }
+    .pill { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:6px 10px; color:var(--muted); background:#0b1527; font-size:13px; margin:3px 4px 3px 0; }
+    .ok { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+    pre, code { font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    pre { overflow:auto; background:var(--code); border:1px solid #1d2e4e; border-radius:14px; padding:16px; color:#dce9ff; font-size:13px; }
+    code { background:#07101f; border:1px solid #1d2e4e; padding:2px 5px; border-radius:6px; }
+    table { width:100%; border-collapse:collapse; overflow:hidden; border-radius:14px; }
+    th, td { border-bottom:1px solid var(--line); padding:10px 11px; text-align:left; vertical-align:top; }
+    th { background:#0a1528; color:#fff; } tr:hover td { background:rgba(125,211,252,.04); }
+    details { border:1px solid var(--line); border-radius:14px; padding:12px 14px; background:#0b1527; margin:10px 0; }
+    summary { cursor:pointer; font-weight:700; color:#fff; }
+    .diagram { width:100%; max-width:1080px; display:block; margin:auto; }
+    .hide { display:none !important; } .note { border-left:4px solid var(--accent); padding:12px 14px; background:#0b162b; border-radius:12px; }
+    .danger { border-left-color:var(--bad); } .warning { border-left-color:var(--warn); }
+    .kbd { padding:2px 6px; border:1px solid var(--line); border-bottom-width:2px; border-radius:6px; color:#fff; background:#0a1427; }
+    @media (max-width: 960px) { .layout { grid-template-columns:1fr; } aside { position:relative; height:auto; } .grid.cols-2,.grid.cols-3,.grid.cols-4 { grid-template-columns:1fr; } main { padding:22px; } }
+  </style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand"><div class="logo"></div><div><h1>Swarm Agent Service</h1><small>v0.6.0 · финальный аудит</small></div></div>
+  <input class="search" id="search" placeholder="Поиск по документации…" />
+  <nav id="nav">
+    <a href="#summary">Итог аудита</a><a href="#dependencies">Зависимости</a>
+    <a href="#structure">Структура проекта</a><a href="#flow">Порядок работы</a>
+    <a href="#state">State и reducers</a><a href="#context">Сжатие контекста</a>
+    <a href="#tools">Tools и parallel calls</a><a href="#agents">Агенты и подагенты</a>
+    <a href="#service">SwarmService API</a><a href="#streaming">Streaming</a>
+    <a href="#observability">Логи, LangSmith, Langfuse</a><a href="#scaling">План масштабирования</a>
+    <a href="#testing">Тестирование</a><a href="#checklists">Production checklist</a>
+  </nav>
+</aside>
+<main>
+  <section class="hero" id="summary">
+    <p class="pill">Python 3.12 target</p><p class="pill">Async-only</p><p class="pill">LangGraph</p><p class="pill">OpenAI-compatible tool calling</p>
+    <h1>Финальный глубокий аудит архитектуры роя агентов</h1>
+    <p>Документ объясняет устройство сервиса, принятые архитектурные решения,
+    зависимости, state-flow, маршрутизацию, сжатие контекста, execution policy
+    для tool calls, тесты и план дальнейшего масштабирования.</p>
+    <div class="grid cols-4">
+      <div class="card"><div class="metric">44/48</div><b>тестов прошли</b><br><span class="muted">4 integration skipped без LangGraph runtime</span></div>
+      <div class="card"><div class="metric">46</div><b>source-файлов</b><br><span class="muted">4517 строк в src/swarm_agent</span></div>
+      <div class="card"><div class="metric">10</div><b>test-файлов</b><br><span class="muted">991 строк тестов</span></div>
+      <div class="card"><div class="metric">0</div><b>hardcoded keys</b><br><span class="muted">секреты только через env/.env</span></div>
+    </div>
+    <div class="note"><b>Честное ограничение проверки:</b> сетевой OpenRouter smoke-test не запускался без безопасного production API key. Проверены два режима: lightweight без runtime deps и runtime-deps через /tmp/swarm_deps; финальный production gate нужно прогнать в чистом Python 3.12 CI.</div>
+  </section>
+
+  <section id="dependencies">
+    <h2>1. Зависимости и зачем они нужны</h2>
+    <p>Версии закреплены под Python 3.12 и production async runtime. Информация о релизах проверена по текущим PyPI/официальным документациям на момент аудита.</p>
+    <table><thead><tr><th>Зависимость</th><th>Диапазон</th><th>Роль в системе</th><th>Риск и контроль</th></tr></thead><tbody>
+      <tr><td><code>langgraph</code></td><td><code>&gt;=1.2.4,&lt;2</code></td><td>StateGraph, checkpoints, streaming, Command routing.</td><td>Graph builder покрыт тестом langgraph.json factory; tool nodes без static outgoing edges.</td></tr>
+      <tr><td><code>langchain-core</code></td><td><code>&gt;=1.4.0,&lt;2</code></td><td>Message classes, RunnableConfig, BaseTool contracts.</td><td>Offline stubs в mocked tests, чтобы проверять логику без runtime deps.</td></tr>
+      <tr><td><code>langchain-openai</code></td><td><code>&gt;=1.2.2,&lt;2</code></td><td><code>ChatOpenAI</code> для OpenRouter OpenAI-compatible endpoint.</td><td><code>bind_tools</code> получает cached tool schemas; <code>parallel_tool_calls</code> не отправляется по умолчанию.</td></tr>
+      <tr><td><code>pydantic</code></td><td><code>&gt;=2.13.4,&lt;3</code></td><td>Строгие модели state, settings, provider profiles, tool args.</td><td><code>extra=forbid/ignore</code> выбирается по месту; cross-field validator для tool fan-out.</td></tr>
+      <tr><td><code>pydantic-settings</code></td><td><code>&gt;=2.14.1,&lt;3</code></td><td>Env/.env настройки без hardcoded секретов.</td><td>Пустые env-строки нормализуются в <code>None</code>.</td></tr>
+      <tr><td><code>httpx[http2]</code></td><td><code>&gt;=0.28.1,&lt;1</code></td><td>Единый async HTTP pool для LLM provider.</td><td>Нет sync-клиента; пул закрывается через <code>SwarmService.aclose()</code>.</td></tr>
+      <tr><td><code>orjson</code></td><td><code>&gt;=3.11.9,&lt;4</code></td><td>Быстрая сериализация prompt context и reducers.</td><td>Используется только для JSON-like структур; fallback через <code>repr/default=str</code>.</td></tr>
+      <tr><td><code>loguru</code></td><td><code>&gt;=0.7.3,&lt;1</code></td><td>Структурное логирование runtime-узлов.</td><td>По умолчанию сервис настраивает INFO-sink; если приложение само управляет логами, поставь <code>SWARM_LOG_CONFIGURE=false</code>.</td></tr>
+      <tr><td><code>pytest / pytest-asyncio</code></td><td>dev</td><td>Unit, static, mocked async tests.</td><td>Integration tests активируются после установки LangGraph/LangChain.</td></tr>
+    </tbody></table>
+    <details><summary>Источники по зависимостям</summary>
+      <ul>
+        <li>LangGraph application structure: https://docs.langchain.com/oss/python/langgraph/application-structure</li>
+        <li>LangGraph streaming: https://docs.langchain.com/oss/python/langgraph/streaming</li>
+        <li>LangGraph persistence: https://docs.langchain.com/oss/python/langgraph/persistence</li>
+        <li>LangChain ChatOpenAI bind_tools: https://docs.langchain.com/oss/python/integrations/chat/openai</li>
+        <li>HTTPX docs/PyPI: https://www.python-httpx.org/ и https://pypi.org/project/httpx/</li>
+        <li>LangSmith observability: https://docs.langchain.com/oss/python/langgraph/observability</li>
+        <li>Langfuse LangChain integration: https://docs.langchain.com/oss/python/integrations/providers/langfuse</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="structure">
+    <h2>2. Структура проекта</h2>
+    <p>Файлы разложены по слоям. В корне пакета только публичный фасад, общие типы и маленькие utils. Runtime, tools, state, graph и LLM изолированы.</p>
+    <pre>├── docs/
+│   └── swarm_architecture_ru.html
+├── src/
+│   └── swarm_agent/
+│       ├── agents/
+│       │   ├── __init__.py
+│       │   ├── prompts.py
+│       │   └── registry.py
+│       ├── budget/
+│       │   ├── __init__.py
+│       │   ├── compaction.py
+│       │   └── context.py
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── errors.py
+│       │   ├── logging.py
+│       │   └── text.py
+│       ├── graph/
+│       │   ├── __init__.py
+│       │   ├── bootstrap.py
+│       │   └── builder.py
+│       ├── llm/
+│       │   ├── __init__.py
+│       │   ├── catalog.py
+│       │   ├── http.py
+│       │   ├── hub.py
+│       │   └── profiles.py
+│       ├── runtime/
+│       │   ├── __init__.py
+│       │   ├── agent.py
+│       │   ├── finalization.py
+│       │   ├── retry.py
+│       │   ├── routing.py
+│       │   ├── tool_executor.py
+│       │   └── tool_protocol.py
+│       ├── state/
+│       │   ├── __init__.py
+│       │   ├── models.py
+│       │   ├── reducers.py
+│       │   ├── schema.py
+│       │   └── snapshot.py
+│       ├── tools/
+│       │   ├── audio/
+│       │   │   └── __init__.py
+│       │   ├── docs/
+│       │   │   └── __init__.py
+│       │   ├── system/
+│       │   │   ├── __init__.py
+│       │   │   ├── factory.py
+│       │   │   └── schemas.py
+│       │   ├── video/
+│       │   │   └── __init__.py
+│       │   ├── vision/
+│       │   │   └── __init__.py
+│       │   ├── web/
+│       │   │   └── __init__.py
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   └── cache.py
+│       ├── __init__.py
+│       ├── service.py
+│       ├── types.py
+│       └── utils.py
+├── tests/
+│   ├── test_budget.py
+│   ├── test_config_contract.py
+│   ├── test_finalization.py
+│   ├── test_project_layout.py
+│   ├── test_registry.py
+│   ├── test_runtime_routing.py
+│   ├── test_state_reducers.py
+│   ├── test_static_audit.py
+│   ├── test_tool_executor.py
+│   └── test_tool_executor_mocked.py
+├── .env.example
+├── README.md
+├── REPORT.md
+├── SECURITY.md
+├── langgraph.json
+└── pyproject.toml</pre>
+    <div class="grid cols-3">
+      <div class="card"><h3>Core</h3><p>Настройки, ошибки, логирование, безопасная работа с текстом.</p></div>
+      <div class="card"><h3>Agents</h3><p>Реестр топологии, parent/child индексы, системные prompt-протоколы.</p></div>
+      <div class="card"><h3>Runtime</h3><p>AgentNode, router, ToolExecutorNode, retry и finalization nodes.</p></div>
+      <div class="card"><h3>Tools</h3><p>Каталог инструментов по категориям: system, web, docs, vision, audio, video.</p></div>
+      <div class="card"><h3>State</h3><p>TypedDict схема, reducers, snapshot coercion, replace-list/value patch contracts.</p></div>
+      <div class="card"><h3>LLM</h3><p>Provider/model registry, async HTTP pool, cached ChatOpenAI factory.</p></div>
+    </div>
+  </section>
+
+  <section id="flow">
+    <h2>3. Порядок работы сервиса по шагам</h2>
+    <svg class="diagram" viewBox="0 0 1100 500" role="img" aria-label="flow diagram">
+      <defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#7dd3fc"/><stop offset="1" stop-color="#c084fc"/></linearGradient></defs>
+      <rect x="20" y="30" width="190" height="70" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="115" y="61" text-anchor="middle" fill="#fff" font-size="16">SwarmService</text><text x="115" y="84" text-anchor="middle" fill="#a9b7cb" font-size="12">ainvoke/astream</text>
+      <rect x="255" y="30" width="170" height="70" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="340" y="61" text-anchor="middle" fill="#fff" font-size="16">initial_state</text><text x="340" y="84" text-anchor="middle" fill="#a9b7cb" font-size="12">HumanMessage + files</text>
+      <rect x="470" y="30" width="165" height="70" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="552" y="61" text-anchor="middle" fill="#fff" font-size="16">init_swarm</text><text x="552" y="84" text-anchor="middle" fill="#a9b7cb" font-size="12">reset per-run</text>
+      <rect x="680" y="30" width="165" height="70" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="762" y="61" text-anchor="middle" fill="#fff" font-size="16">AgentNode</text><text x="762" y="84" text-anchor="middle" fill="#a9b7cb" font-size="12">context + LLM</text>
+      <rect x="890" y="30" width="185" height="70" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="982" y="61" text-anchor="middle" fill="#fff" font-size="16">Router</text><text x="982" y="84" text-anchor="middle" fill="#a9b7cb" font-size="12">tools/recovery/guard</text>
+      <rect x="350" y="200" width="220" height="76" rx="16" fill="#132c3f" stroke="#7dd3fc"/><text x="460" y="232" text-anchor="middle" fill="#fff" font-size="16">ToolExecutorNode</text><text x="460" y="256" text-anchor="middle" fill="#a9b7cb" font-size="12">parallel-safe + routing barrier</text>
+      <rect x="635" y="200" width="200" height="76" rx="16" fill="#132c3f" stroke="#7dd3fc"/><text x="735" y="232" text-anchor="middle" fill="#fff" font-size="16">Transfer / Finish</text><text x="735" y="256" text-anchor="middle" fill="#a9b7cb" font-size="12">Command.goto</text>
+      <rect x="470" y="370" width="220" height="76" rx="16" fill="#2a1d42" stroke="#c084fc"/><text x="580" y="402" text-anchor="middle" fill="#fff" font-size="16">Finalizer</text><text x="580" y="426" text-anchor="middle" fill="#a9b7cb" font-size="12">SwarmSnapshot + final_answer</text>
+      <g stroke="url(#g)" stroke-width="3" fill="none" marker-end="url(#arrow)"><path d="M210 65 H255"/><path d="M425 65 H470"/><path d="M635 65 H680"/><path d="M845 65 H890"/><path d="M980 100 C930 170 680 170 570 220"/><path d="M570 238 H635"/><path d="M735 276 C730 330 660 360 630 370"/><path d="M460 276 C390 340 470 365 520 370"/></g>
+      <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#7dd3fc"/></marker></defs>
+    </svg>
+    <ol>
+      <li><b>Фасад</b> принимает query/files, создаёт <code>thread_id</code>, формирует входной state.</li>
+      <li><b>Bootstrap</b> очищает per-run каналы: errors/history/out_files/scratch/data, но сохраняет episodic memory.</li>
+      <li><b>AgentNode</b> сжимает history, строит runtime context, добавляет stable protocol prompt и вызывает LLM.</li>
+      <li><b>Router</b> всегда отправляет AIMessage с tool calls в tool-node, чтобы закрыть каждый <code>tool_call_id</code>.</li>
+      <li><b>ToolExecutor</b> исполняет non-routing tools параллельно, routing tools детерминированно, объединяет updates.</li>
+      <li><b>Finalization</b> нормализует ответ или восстанавливает fallback без технического текста для пользователя.</li>
+    </ol>
+  </section>
+
+  <section id="state">
+    <h2>4. State, reducers и гарантия “ничего не потерять”</h2>
+    <table><thead><tr><th>Канал</th><th>Смысл</th><th>Reducer / правило</th></tr></thead><tbody>
+      <tr><td><code>messages</code></td><td>LangChain message history.</td><td><code>add_messages</code>; старые сообщения удаляются через <code>RemoveMessage</code>.</td></tr>
+      <tr><td><code>context</code></td><td>Нормализованный запрос, intent, subject, lang, tags.</td><td><code>r_context</code>, tags дедуплицируются и могут заменяться.</td></tr>
+      <tr><td><code>space</code></td><td>Общая память задачи и <code>episodic_memory</code>.</td><td><code>r_space</code>, notes дедуплицируются; episodic_memory не чистится на run init.</td></tr>
+      <tr><td><code>data</code></td><td>Структурированные findings: json, files, links.</td><td><code>r_data</code>, deep-merge + <code>replace_value</code> для reset.</td></tr>
+      <tr><td><code>workspace</code></td><td>Черновик и финальный ответ.</td><td><code>r_workspace</code>; non-routing tools не могут писать final_answer.</td></tr>
+      <tr><td><code>errors/history</code></td><td>Технический журнал и handoff-history.</td><td><code>r_tail</code> с bounded хвостом.</td></tr>
+      <tr><td><code>in_files/out_files</code></td><td>Входные/выходные файлы.</td><td><code>r_unique</code> + <code>replace_list</code> на новом run.</td></tr>
+      <tr><td><code>metrics</code></td><td>LLM calls, tool calls, retries, prompt chars.</td><td><code>r_metrics</code> суммирует counters.</td></tr>
+    </tbody></table>
+    <details><summary>Почему нужен <code>replace_value</code>?</summary><p>Для dict-каналов обычный patch означает deep-merge. Если на новом run передать <code>{}</code>, старые nested-ключи могли остаться. <code>replace_value({})</code> явно говорит reducer: заменить значение целиком.</p></details>
+  </section>
+
+  <section id="context">
+    <h2>5. Сжатие контекста и message history</h2>
+    <p>Алгоритм <code>budget.compaction</code> работает блоками: обычное сообщение или неразрывная пара <code>AIMessage(tool_calls) + ToolMessage...</code>. Неполные tool-блоки не попадают в активное окно, а уходят в episodic memory.</p>
+    <div class="grid cols-3">
+      <div class="card"><h3>1. Разбивка на блоки</h3><p>ToolMessage без AIMessage считается orphan. AIMessage с tool_calls валиден только при точном наборе ответов.</p></div>
+      <div class="card"><h3>2. Выбор хвоста</h3><p>Храним последние валидные блоки без разрыва протокола. Большая tool-пара сохраняется целиком.</p></div>
+      <div class="card"><h3>3. Memory + RemoveMessage</h3><p>Удалённые сообщения рендерятся в <code>episodic_memory</code>, а из state удаляются по id.</p></div>
+    </div>
+    <pre>AI(tool_calls=[c1,c2]) + Tool(c1) + Tool(c2)  -> valid block
+AI(tool_calls=[c1,c2]) + Tool(c1)             -> invalid block -> memory
+Tool(c1) без предшествующего AI                -> orphan -> memory</pre>
+  </section>
+
+  <section id="tools">
+    <h2>6. Tools, parallel calls и routing barrier</h2>
+    <p>Поддержка параллельных tool calls есть, но она не смешивает независимые side effects с маршрутизацией графа.</p>
+    <svg class="diagram" viewBox="0 0 1000 360" role="img" aria-label="tool policy">
+      <rect x="40" y="40" width="250" height="80" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="165" y="74" text-anchor="middle" fill="#fff">AIMessage.tool_calls</text><text x="165" y="98" text-anchor="middle" fill="#a9b7cb">c1, c2, transfer/finish</text>
+      <rect x="370" y="40" width="250" height="80" rx="16" fill="#132c3f" stroke="#7dd3fc"/><text x="495" y="74" text-anchor="middle" fill="#fff">Non-routing batch</text><text x="495" y="98" text-anchor="middle" fill="#a9b7cb">parallel_safe + chunk limit</text>
+      <rect x="700" y="40" width="250" height="80" rx="16" fill="#2a1d42" stroke="#c084fc"/><text x="825" y="74" text-anchor="middle" fill="#fff">Routing barrier</text><text x="825" y="98" text-anchor="middle" fill="#a9b7cb">finish &gt; transfer</text>
+      <rect x="220" y="210" width="250" height="80" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="345" y="244" text-anchor="middle" fill="#fff">merge_update</text><text x="345" y="268" text-anchor="middle" fill="#a9b7cb">messages/errors/state/metrics</text>
+      <rect x="560" y="210" width="260" height="80" rx="16" fill="#14233d" stroke="#2a3a6a"/><text x="690" y="244" text-anchor="middle" fill="#fff">Command(update,goto)</text><text x="690" y="268" text-anchor="middle" fill="#a9b7cb">один следующий узел</text>
+      <g stroke="#7dd3fc" stroke-width="3" fill="none" marker-end="url(#a)"><path d="M290 80 H370"/><path d="M620 80 H700"/><path d="M495 120 C490 170 380 190 350 210"/><path d="M825 120 C810 170 720 190 690 210"/><path d="M470 250 H560"/></g>
+      <defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7dd3fc"/></marker></defs>
+    </svg>
+    <h3>Правила executor</h3>
+    <ul>
+      <li>Non-routing tools до routing barrier могут выполняться параллельно.</li>
+      <li><code>finish</code> приоритетнее <code>transfer</code>, потому что содержит готовый ответ.</li>
+      <li>Tool после выбранного routing tool не исполняется, но получает <code>ToolMessage</code>.</li>
+      <li>На loop-limit исполняется только <code>finish</code>; остальные вызовы закрываются warning-сообщениями.</li>
+      <li>Non-routing Command очищается от <code>active_node</code>, <code>pending_transfer</code>, counters, <code>is_final</code> и финального <code>workspace</code>.</li>
+      <li>Fan-out ограничен: <code>max_tool_calls_per_turn</code>, concurrency — <code>max_parallel_tool_calls</code>.</li>
+    </ul>
+    <div class="note warning"><b>Практика для web/tools:</b> если нужно найти два факта, лучше дать агенту batch-tool <code>web_search_batch(queries=[...])</code>. Если модель всё равно вернула два независимых calls, executor выполнит их параллельно.</div>
+  </section>
+
+  <section id="agents">
+    <h2>7. Агенты, подагенты и маршрутизация задач</h2>
+    <table><thead><tr><th>Агент</th><th>Роль</th><th>Когда нужен</th></tr></thead><tbody>
+      <tr><td><code>reasoner</code></td><td>Главный координатор и синтезатор.</td><td>Всегда entry node, решает отвечать или делегировать.</td></tr>
+      <tr><td><code>vision</code></td><td>Изображения, UI, диаграммы, скриншоты.</td><td>Когда есть визуальные файлы/описания.</td></tr>
+      <tr><td><code>audio</code></td><td>Речь, звуки, тональность, аудио-факты.</td><td>Когда есть аудио/voice.</td></tr>
+      <tr><td><code>video</code></td><td>Сцены, таймкоды, связь аудио и изображения.</td><td>Когда нужно разобрать видео.</td></tr>
+      <tr><td><code>docs</code></td><td>PDF/DOCX/таблицы/цитаты.</td><td>Когда нужно извлечь факты из документов.</td></tr>
+      <tr><td><code>web</code></td><td>Актуальная внешняя информация и источники.</td><td>Когда нужна свежесть или проверка источников.</td></tr>
+    </tbody></table>
+    <h3>Подагент</h3>
+    <pre>AgentSpec(
+    name="web_researcher",
+    role="Подагент для глубокого веб-исследования.",
+    tasks=("Собрать источники", "Сжать факты"),
+    peers=("web",),
+)</pre>
+    <p>Parent автоматически видит child как peer, child автоматически видит parent. Возврат результата — обычный <code>transfer</code> назад родителю.</p>
+  </section>
+
+  <section id="service">
+    <h2>8. SwarmService как фасад</h2>
+    <pre>async with SwarmService() as swarm:
+    result = await swarm.ainvoke(
+        "Проанализируй документы и дай краткий вывод",
+        thread_id="user-123",
+        files=[{"id": "doc1", "uri": "file:///tmp/a.pdf", "kind": "doc"}],
+    )
+    print(result.final_answer)</pre>
+    <p>Фасад владеет LLMHub и HTTP pool. Он превращает graph crash в <code>SwarmResult(ok=False)</code> с безопасным пользовательским текстом. Технические детали остаются в <code>snapshot.errors</code>.</p>
+    <table><thead><tr><th>Метод</th><th>Что делает</th></tr></thead><tbody>
+      <tr><td><code>ainvoke</code></td><td>Основной async вызов задачи, возвращает <code>SwarmResult</code>.</td></tr>
+      <tr><td><code>astream</code></td><td>Прокидывает LangGraph async stream events/state chunks.</td></tr>
+      <tr><td><code>astream_final</code></td><td>Iterator, который отдаёт финальный ответ одним chunk.</td></tr>
+      <tr><td><code>aget_state</code></td><td>Достаёт checkpoint state для thread_id, если есть checkpointer.</td></tr>
+      <tr><td><code>aclose</code></td><td>Закрывает async HTTP pool.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="streaming">
+    <h2>9. Streaming</h2>
+    <p>Сервис поддерживает LangGraph <code>astream</code>. По умолчанию лучше использовать <code>stream_mode="values"</code> для state snapshots. Token-level streaming нужно включать отдельным API-адаптером, чтобы отделить пользовательские токены от служебных tool/state events.</p>
+    <pre>async for event in swarm.astream("Задача", stream_mode="updates"):
+    handle(event)
+
+async for text in swarm.astream_final("Задача"):
+    yield text</pre>
+  </section>
+
+  <section id="observability">
+    <h2>10. Логи, LangSmith и Langfuse</h2>
+    <h3>Loguru</h3>
+    <p>В коде используется <code>logger.bind(...)</code>: thread_id, node, agent, tool, goto, retry. По умолчанию сервис перенастраивает Loguru на INFO, чтобы не шумел дефолтный DEBUG sink. Если приложение само управляет логами, поставь <code>SWARM_LOG_CONFIGURE=false</code>. Для JSON-логов:</p>
+    <pre>SWARM_LOG_CONFIGURE=true
+SWARM_LOG_LEVEL=INFO
+SWARM_LOG_JSON=true</pre>
+    <h3>LangSmith</h3>
+    <p>LangGraph/LangChain умеют прокидывать tracing metadata/tags через RunnableConfig. Практический план:</p>
+    <pre>config={
+    "tags": ["prod", "swarm", "v0.6"],
+    "metadata": {"tenant_id": "...", "request_id": "..."},
+}
+result = await swarm.ainvoke("...", config=config)</pre>
+    <h3>Langfuse</h3>
+    <p>Langfuse подключается через LangChain callbacks. В будущем фасад можно расширить параметром <code>callbacks</code> или прокидывать их через <code>config</code>.</p>
+    <pre>from langfuse.langchain import CallbackHandler
+handler = CallbackHandler()
+await swarm.ainvoke("...", config={"callbacks": [handler]})</pre>
+    <div class="note warning"><b>PII:</b> перед production tracing нужны anonymizers/redaction rules, чтобы не логировать секреты, персональные данные и содержимое приватных документов без разрешения.</div>
+  </section>
+
+  <section id="scaling">
+    <h2>11. План масштабирования</h2>
+    <div class="grid cols-2">
+      <div class="card"><h3>Tools по категориям</h3><p><code>web_search_batch</code>, <code>fetch_url</code>, <code>parse_pdf</code>, <code>extract_tables</code>, <code>analyze_image</code>, <code>transcribe_audio</code>, <code>extract_keyframes</code>. Все IO-tools должны иметь timeout, retry policy, size limits и allowlist.</p></div>
+      <div class="card"><h3>MCP</h3><p>Добавить <code>tools/mcp</code> adapter: загрузка server manifest, allowlist tools, schemas, sandbox permissions, human approval для write/delete/network-heavy actions.</p></div>
+      <div class="card"><h3>Remote agents / A2A</h3><p>Расширить <code>PendingTransfer(protocol=A2A)</code>: endpoint_uri, agent_card_uri, auth, heartbeat, timeout, result schema, idempotency key.</p></div>
+      <div class="card"><h3>Persistence</h3><p>Подключить production checkpointer: Postgres/Redis/S3-compatible storage, retention policy, thread isolation, encryption at rest.</p></div>
+      <div class="card"><h3>Evaluation</h3><p>Regression prompts, handoff correctness, tool schema conformance, compaction invariants, source citation correctness, cost/latency benchmarks.</p></div>
+      <div class="card"><h3>Security</h3><p>Prompt-injection scanner для tool outputs, per-tool permissions, audit log, quota/rate limits, redaction before logs/traces.</p></div>
+    </div>
+    <h3>Как добавить новый tool category</h3>
+    <pre>src/swarm_agent/tools/web/__init__.py
+
+def build_web_tools(caller_name: str) -> tuple[BaseTool, ...]:
+    return (web_search_batch_tool,)
+
+# затем в AgentSpec:
+AgentSpec(name="web", ..., tools=("web",))</pre>
+  </section>
+
+  <section id="testing">
+    <h2>12. Тестирование и аудит</h2>
+    <table><thead><tr><th>Проверка</th><th>Статус</th><th>Что ловит</th></tr></thead><tbody>
+      <tr><td><code>compileall</code></td><td class="ok">OK</td><td>Синтаксис всех src/tests файлов.</td></tr>
+      <tr><td><code>pytest lightweight</code></td><td class="ok">44 passed, 4 skipped</td><td>Reducers, budget, registry, routing, layout, config, mocked executor.</td></tr>
+      <tr><td><code>pytest runtime deps</code></td><td class="ok">40 passed, 8 skipped</td><td>Integration ToolExecutor на реальных langchain_core/langgraph; mocked-дубли пропущены.</td></tr>
+      <tr><td>Static audit</td><td class="ok">OK</td><td>Нет длинных строк, дублей полей, hardcoded API keys.</td></tr>
+      <tr><td>Layout audit</td><td class="ok">OK</td><td>Нет legacy files; langgraph.json указывает на существующий factory.</td></tr>
+      <tr><td>OpenRouter smoke</td><td class="warn">Не запускался</td><td>Нужен безопасный API key; локально запускать после заполнения .env.</td></tr>
+    </tbody></table>
+    <pre>python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ".[dev]"
+cp .env.example .env
+# добавить новый OPENROUTER_API_KEY
+PYTHONPATH=src pytest -q -rs</pre>
+  </section>
+
+  <section id="checklists">
+    <h2>13. Production checklist</h2>
+    <details open><summary>Перед коммитом</summary><ul>
+      <li>Нет секретов в коде, README, tests, .env.example.</li>
+      <li><code>python -m compileall -q src tests</code> проходит.</li>
+      <li><code>PYTHONPATH=src pytest -q -rs</code> проходит.</li>
+      <li>Архив очищен от <code>__pycache__</code>, <code>.pyc</code>, <code>.pytest_cache</code>.</li>
+      <li>Python runtime — 3.12, как закреплено в <code>pyproject.toml</code>.</li>
+    </ul></details>
+    <details><summary>Перед production запуском</summary><ul>
+      <li>Новый OpenRouter API key, старые ключи после публикации кода отозвать.</li>
+      <li>Checkpointer для state persistence и thread isolation.</li>
+      <li>LangSmith/Langfuse tracing с redaction/anonymizers.</li>
+      <li>Timeouts/retries/quotas на внешние tools.</li>
+      <li>CI: tests, static audit, dependency lock, vulnerability scan.</li>
+    </ul></details>
+  </section>
+</main>
+</div>
+<script>
+const input = document.getElementById('search');
+const sections = [...document.querySelectorAll('main section')];
+input.addEventListener('input', () => {
+  const q = input.value.trim().toLowerCase();
+  for (const s of sections) {
+    s.classList.toggle('hide', q && !s.innerText.toLowerCase().includes(q));
+  }
+});
+</script>
+</body>
+</html>
