@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.swarm_agent.text import dedupe_lines, dumps_compact, tail_text, truncate_text
+from app.services.swarm_agent.utils import clip, clip_tail, to_json, uniq_lines
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +56,7 @@ def _message_content_text(content: Any) -> str:
         return content
         
     if isinstance(content, dict):
-        return dumps_compact(content)
+        return to_json(content)
         
     if isinstance(content, list):
         parts: list[str] = []
@@ -68,7 +68,7 @@ def _message_content_text(content: Any) -> str:
             elif item_type := item.get("type"):
                 parts.append(f"<{item_type}>")
             else:
-                parts.append(truncate_text(dumps_compact(item), 500))
+                parts.append(clip(to_json(item), 500))
         return " ".join(parts)
         
     return str(content)
@@ -217,7 +217,7 @@ def render_message_for_memory(msg: Any, *, max_chars: int = 700) -> str:
     """Сжать одно сообщение до строки для помещения в episodic memory."""
     
     role = _message_role(msg)
-    content = truncate_text(_message_content_text(getattr(msg, "content", "")), max_chars)
+    content = clip(_message_content_text(getattr(msg, "content", "")), max_chars)
     
     if calls := getattr(msg, "tool_calls", None):
         # Быстрая генерация списка имен инструментов
@@ -263,7 +263,7 @@ def compact_messages(
     # Моментальная сборка новой памяти через list comprehension
     rendered = "\n".join([render_message_for_memory(m) for m in evicted])
     combined = f"{previous_summary}\n{rendered}".strip() if previous_summary else rendered
-    summary = tail_text(dedupe_lines(combined), max_summary_chars)
+    summary = clip_tail(uniq_lines(combined), max_summary_chars)
 
     # Словарь dict используется как упорядоченный set (стандарт Python 3.7+)
     # Это позволяет собрать уникальные ID быстрее, чем старый вариант

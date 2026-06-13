@@ -17,7 +17,7 @@ from pydantic import ConfigDict
 
 from app.config import Settings
 from app.config import get_settings
-from app.services.swarm_agent.text import truncate_text
+from app.services.swarm_agent.utils import clip
 from app.services.swarm_agent.types import LinkRecord
 from app.services.swarm_agent.exceptions import MissingApiKeyError
 from app.services.swarm_agent.exceptions import ToolExecutionError
@@ -145,7 +145,7 @@ def _parse_sources(annotations: Any) -> tuple[WebSearchSource, ...]:
                 id=_stable_id("web", url),
                 url=url,
                 title=str(citation.get("title") or "").strip(),
-                snippet=truncate_text(
+                snippet=clip(
                     str(citation.get("content") or "").strip(),
                     1_200,
                 ),
@@ -307,7 +307,7 @@ class OpenRouterWebSearchClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            detail = truncate_text(exc.response.text, 600)
+            detail = clip(exc.response.text, 600)
             raise ToolExecutionError(
                 f"OpenRouter web search failed: {exc.response.status_code} {detail}"
             ) from exc

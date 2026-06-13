@@ -1,8 +1,8 @@
 """Мелкие runtime-утилиты без привязки к LangGraph.
 
 Вынесены повторяющиеся операции: чтение роли/контента сообщения,
-нормализация списков, безопасная обработка исключений и слияние 
-нескольких tool-update в единый поток.
+нормализация списков, prompt/state budget, безопасная обработка
+исключений и слияние нескольких tool-update в единый поток.
 """
 
 from __future__ import annotations
@@ -10,9 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import orjson
 from pydantic import BaseModel
-
-from app.services.swarm_agent.text import truncate_text
 
 # ---------------------------------------------------------------------------
 # Константы для сверхбыстрого O(1) роутинга при слиянии стейтов
@@ -78,11 +77,61 @@ def message_content(message: Any) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+def clip(text: str, limit: int, *, suffix: str = " ...[truncated]") -> str:
+    """Обрезать строку с жёстким лимитом символов."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    cut = max(0, limit - len(suffix))
+    return text[:cut].rstrip() + suffix
+
+
+def clip_tail(text: str, limit: int, *, prefix: str = "...[earlier memory truncated]\n") -> str:
+    """Оставить свежий хвост длинной памяти."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    keep = max(0, limit - len(prefix))
+    return prefix + text[-keep:].lstrip()
+
+
+def to_json(value: Any) -> str:
+    """Компактно сериализовать value для prompt-контекста."""
+    if isinstance(value, BaseModel):
+        return value.model_dump_json(exclude_unset=True, exclude_none=True)
+    return orjson.dumps(value, default=str, option=orjson.OPT_SORT_KEYS).decode("utf-8")
+
+
+def state_part(title: str, value: Any, *, max_chars: int) -> str:
+    """Сериализовать один канал state с ограничением размера."""
+    if value in (None, "", [], {}, ()):
+        return ""
+    try:
+        serialized = to_json(value)
+    except Exception:  # noqa: BLE001 - сборка prompt не должна валить граф.
+        serialized = repr(value)
+    return f"[{title.upper()}]\n{clip(serialized, max_chars)}\n"
+
+
+def uniq_lines(text: str, *, max_seen: int = 4_096) -> str:
+    """Удалить повторяющиеся строки, сохраняя порядок и ограничивая память."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in text.splitlines():
+        key = line.strip()
+        if key and key in seen:
+            continue
+        if key:
+            if len(seen) >= max_seen:
+                seen.clear()
+            seen.add(key)
+        out.append(line)
+    return "\n".join(out)
+
+
 def safe_error_text(exc: BaseException, *, limit: int = 1_500) -> str:
     """Сжимает трейсбэк ошибки для аккуратной записи в логи и snapshot."""
     
     text = str(exc).strip() or exc.__class__.__name__
-    return truncate_text(text, limit)
+    return clip(text, limit)
 
 
 def _merge_patch(

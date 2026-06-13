@@ -15,9 +15,8 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from app.services.swarm_agent.graph.state import ErrorRecord
-from app.services.swarm_agent.text import truncate_text
+from app.services.swarm_agent.utils import as_list, clip
 from app.services.swarm_agent.types import ErrorSeverity
-from app.services.swarm_agent.utils import as_list
 
 # Множество заморожено для O(1) проверок
 _CONTROL_KEYS: Final[frozenset[str]] = frozenset({
@@ -97,7 +96,7 @@ def tool_message(content: str, *, name: str, call_id: str) -> ToolMessage:
     """Генерация закрывающего ToolMessage с валидным ID для графа."""
     
     kwargs = {
-        "content": truncate_text(content, 4_000),
+        "content": clip(content, 4_000),
         "name": name or "unknown_tool",
         "tool_call_id": call_id,
         "id": f"tool:{call_id}",

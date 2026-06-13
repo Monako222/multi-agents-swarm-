@@ -13,19 +13,21 @@ from graph state.
 
 from __future__ import annotations
 
-import asyncio
 import sys
+import asyncio
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 
 from app.config import get_settings
+from app.services.swarm_agent.graph.state import SwarmState
+from app.services.swarm_agent.graph.state import get_answer
+from app.services.swarm_agent.graph.state import to_snapshot
 from app.services.swarm_agent.graph.builder import build_swarm_graph
-from app.services.swarm_agent.graph.state import SwarmState, get_answer, to_snapshot
 from app.services.swarm_agent.observability import get_tracing_manager
 
 
-DEFAULT_QUERY = "Привет друг, как дела твои? Ответь коротко, одним предложением. Найди мне новые новости за последние пару дней иил недель последниеновые ноовсти в интернете по новостям открытиям в атомной энергетике, что нового и другое,  также важно покажи откуда взяты данные с каких источников информации!"
+DEFAULT_QUERY = "Привет друг, как дела твои? Ответь коротко, одним предложением!"
 
 
 def query_from_argv() -> str:

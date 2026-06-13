@@ -26,9 +26,8 @@ from app.services.swarm_agent.graph.budget import (
 from app.services.swarm_agent.graph.runtime.retry import ainvoke_with_retries
 from app.services.swarm_agent.graph.state import ErrorRecord, SwarmState
 from app.services.swarm_agent.llm import LLMHub, LazyLLMHub
-from app.services.swarm_agent.text import truncate_text
+from app.services.swarm_agent.utils import clip, message_content, message_role, safe_error_text
 from app.services.swarm_agent.types import ErrorSeverity
-from app.services.swarm_agent.utils import message_content, message_role, safe_error_text
 
 
 def _latest_user_query(state: SwarmState) -> str:
@@ -73,7 +72,7 @@ def _bounded_history(messages: list[Any], *, char_limit: int) -> list[Any]:
             continue
             
         clone = getattr(msg, "model_copy", None)
-        short = truncate_text(content, char_limit)
+        short = clip(content, char_limit)
         
         bounded.append(
             clone(update={"content": short}) if callable(clone) else msg

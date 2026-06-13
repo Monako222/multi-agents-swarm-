@@ -9,27 +9,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import END
+from langgraph.graph import START
+from langgraph.graph import StateGraph
 
-from app.services.swarm_agent.agents import (
-    FINAL_NODE,
-    LOOP_GUARD_NODE,
-    RECOVERY_NODE,
-    AgentRegistry,
-    agent_registry,
-)
-from app.services.swarm_agent.agents.tools import get_agent_tools
-from app.services.swarm_agent.graph.bootstrap import init_swarm
-from app.services.swarm_agent.graph.runtime import (
-    AgentNode,
-    ToolExecutorNode,
-    finalizer_node,
-    loop_guard_node,
-    make_agent_router,
-    recover_unstructured_answer_node,
-)
+from app.services.swarm_agent.llm import LLMHub
+from app.services.swarm_agent.llm import LazyLLMHub
+from app.services.swarm_agent.agents import FINAL_NODE
+from app.services.swarm_agent.agents import RECOVERY_NODE
+from app.services.swarm_agent.agents import LOOP_GUARD_NODE
+from app.services.swarm_agent.agents import AgentRegistry
+from app.services.swarm_agent.agents import agent_registry
 from app.services.swarm_agent.graph.state import SwarmState
-from app.services.swarm_agent.llm import LLMHub, LazyLLMHub
+from app.services.swarm_agent.agents.tools import get_agent_tools
+from app.services.swarm_agent.graph.runtime import AgentNode
+from app.services.swarm_agent.graph.runtime import ToolExecutorNode
+from app.services.swarm_agent.graph.runtime import finalizer_node
+from app.services.swarm_agent.graph.runtime import loop_guard_node
+from app.services.swarm_agent.graph.runtime import make_agent_router
+from app.services.swarm_agent.graph.runtime import recover_unstructured_answer_node
+from app.services.swarm_agent.graph.bootstrap import init_swarm
 
 
 def build_swarm_graph(
@@ -39,7 +38,7 @@ def build_swarm_graph(
     hub: LLMHub | LazyLLMHub | None = None,
 ) -> Any:
     """Компилирует StateGraph роя со всеми агентами и fallback-узлами."""
-    
+
     llm_hub = hub or LazyLLMHub()
     builder = StateGraph(SwarmState)
 
@@ -53,11 +52,11 @@ def build_swarm_graph(
 
     # 2. Динамическая генерация узлов агентов и их инструментов
     for spec in registry.specs():
-        
+
         # Кэшируем имя за O(1), чтобы не дергать атрибут Pydantic-модели
         name = spec.name
         tools_node = f"{name}_tools"
-        
+
         peers = registry.peer_names(name)
         tools = get_agent_tools(name, peers, spec.tools)
         valid_gotos = (name, FINAL_NODE, *peers)
@@ -65,13 +64,9 @@ def build_swarm_graph(
         # Главный LLM-узел агента
         builder.add_node(
             name,
-            AgentNode(
-                spec, 
-                registry=registry, 
-                hub=llm_hub
-            ),
+            AgentNode(spec, registry=registry, hub=llm_hub),
         )
-        
+
         # Изолированный исполнитель инструментов агента
         builder.add_node(
             tools_node,
@@ -82,7 +77,7 @@ def build_swarm_graph(
                 local_loop_limit=spec.max_local_loops,
             ),
         )
-        
+
         # Маршрутизатор: направляет флоу после ответа LLM
         builder.add_conditional_edges(
             name,
@@ -110,6 +105,6 @@ def build_swarm_graph(
 
     # Финальная компиляция в исполняемый граф
     return builder.compile(
-        checkpointer=checkpointer, 
-        debug=False,
+        checkpointer=checkpointer,
+        debug=True,
     )

@@ -10,7 +10,7 @@ from langchain_core.tools import BaseTool
 from langgraph.types import Command
 
 from app.services.swarm_agent.agents.tools.base import make_async_tool
-from app.services.swarm_agent.text import truncate_text
+from app.services.swarm_agent.utils import clip
 from app.services.swarm_agent.types import ToolCategory
 
 from .client import OpenRouterWebSearchClient, WebSearchResult
@@ -23,7 +23,7 @@ def _compact_json(value: Any) -> str:
 
 def _tool_message(content: str, *, call_id: str) -> ToolMessage:
     kwargs: dict[str, Any] = {
-        "content": truncate_text(content, 4_000),
+        "content": clip(content, 4_000),
         "name": "web_search_batch",
         "tool_call_id": call_id,
         "id": f"tool:{call_id}",
